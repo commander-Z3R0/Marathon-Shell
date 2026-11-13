@@ -1,0 +1,19 @@
+# devices/pine64/pinephonepro/device.toml 
+codename = "pinephonepro"
+id = "pine64-pinephonepro"
+name = "PINE64 PinePhone Pro"
+soc = "rk3399"
+status = "bring-up"
+package = "device-pine64-pinephonepro-marathon"
+
+[build]
+target = "pine64-pinephonepro"
+wrapper = "scripts/build-pinephonepro-image.sh"
+flash = "scripts/flash/flash-pinephonepro.sh"
+bootloader = "uki"
+
+[boot]
+method = "u-boot-script"
+partition_table = "gpt"
+loader_offset_kib = 32 
+script = "marathon-boot.cmd"
