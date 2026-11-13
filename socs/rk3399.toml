@@ -1,0 +1,24 @@
+# socs/rk3399.toml Pinephone Pro
+schema = 1
+id = "rk3399"
+name = "Rockchip RK3399S"
+arch = "aarch64"
+cpu = "2x Cortex-A72 + 4x Cortex-A53"
+display_controller = "VOP + MIPI DSI (rockchip-drm)"
+
+[gpu]
+name = "ARM Mali-T860 MP4"
+render_node = "/dev/dri/renderD128"
+
+[gpu.stacks.mesa-panfrost]
+driver = "panfrost"
+gles_max = "3.0" 
+msaa = false
+
+[profile]
+gpu_stack = "mesa-panfrost"
+gles_level = "2.0"  
+surface_alpha = false
+gpu_msaa = 0
+gpu_rgba16f = false
+render_node = "/dev/dri/renderD128"
