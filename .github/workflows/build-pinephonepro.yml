@@ -1,0 +1,201 @@
+name: PinePhone Pro image
+
+on:
+  workflow_dispatch:
+    inputs:
+      compress_level:
+        description: "Nivel zstd (1-19)"
+        required: false
+        default: "12"
+  push:
+    tags:
+      - "pinephonepro-v*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pinephonepro-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 350
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Reclaim disk
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet \
+            /usr/local/lib/android \
+            /opt/ghc \
+            /usr/local/share/boost \
+            "$AGENT_TOOLSDIRECTORY" || true
+          sudo apt-get clean
+          df -h /
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq \
+            podman \
+            zstd \
+            qemu-utils \
+            qemu-system-arm \
+            qemu-efi-aarch64 \
+            sshpass \
+            dosfstools \
+            e2fsprogs \
+            mtools \
+            rsync \
+            debian-archive-keyring \
+            ubuntu-keyring \
+            dnf
+
+          command -v podman
+          command -v sshpass
+          command -v rsync
+          command -v qemu-system-aarch64
+
+      - name: Allow unprivileged user namespaces
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          sudo sysctl -w kernel.unprivileged_userns_clone=1 2>/dev/null || true
+
+          echo "userns restrict: $(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 'n/a')"
+
+      - name: Bootstrap build trees
+        run: |
+          bash packaging/pipeline-patches/bootstrap.sh "$HOME/.cache/marathon-build"
+
+      - name: Pin mkosi tools tree to Fedora
+        run: |
+          mkdir -p "$HOME/.cache/marathon-build/duranium/mkosi.conf.d"
+
+          cat > "$HOME/.cache/marathon-build/duranium/mkosi.conf.d/10-ci-tools-tree.conf" <<'EOF'
+          [Build]
+          ToolsTreeDistribution=fedora
+          EOF
+
+          sed -i 's/^          //' \
+            "$HOME/.cache/marathon-build/duranium/mkosi.conf.d/10-ci-tools-tree.conf"
+
+          cat "$HOME/.cache/marathon-build/duranium/mkosi.conf.d/10-ci-tools-tree.conf"
+
+      - name: Prepare device secrets
+        env:
+          MARATHON_WIFI_NMCONNECTION_B64: ${{ secrets.MARATHON_WIFI_NMCONNECTION_B64 }}
+          MARATHON_DEV_SSH_KEY: ${{ secrets.MARATHON_DEV_SSH_KEY }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p "$HOME/.marathon-secrets"
+          chmod 700 "$HOME/.marathon-secrets"
+
+          if [ -z "$MARATHON_WIFI_NMCONNECTION_B64" ]; then
+            echo "Missing repository secret: MARATHON_WIFI_NMCONNECTION_B64" >&2
+            exit 1
+          fi
+
+          if [ -z "$MARATHON_DEV_SSH_KEY" ]; then
+            echo "Missing repository secret: MARATHON_DEV_SSH_KEY" >&2
+            exit 1
+          fi
+
+          printf '%s' "$MARATHON_WIFI_NMCONNECTION_B64" \
+            | base64 -d \
+            > "$HOME/.marathon-secrets/SKYZMTGV.nmconnection.raw"
+
+          chmod 600 "$HOME/.marathon-secrets/SKYZMTGV.nmconnection.raw"
+
+          mkdir -p "$HOME/.ssh"
+          chmod 700 "$HOME/.ssh"
+
+          printf '%s\n' "$MARATHON_DEV_SSH_KEY" \
+            > "$HOME/.ssh/id_ed25519.pub"
+
+          chmod 600 "$HOME/.ssh/id_ed25519.pub"
+
+      - name: Build PinePhone Pro image
+        env:
+          MARATHON_DEV_SSH_KEY: ${{ secrets.MARATHON_DEV_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          bash ./scripts/build-pinephonepro-image.sh
+
+      - name: Locate image
+        id: locate
+        run: |
+          set -euo pipefail
+
+          img="$(
+            find "$HOME/.cache/marathon-build/duranium/mkosi.output" \
+              -path '*pine64-pinephonepro_marathon_edge*' \
+              -name '*.raw' \
+              -type f \
+              -printf '%T@ %p\n' \
+            | sort -nr \
+            | head -1 \
+            | cut -d' ' -f2-
+          )"
+
+          if [ -z "$img" ]; then
+            echo "No PinePhone Pro .raw image was produced." >&2
+            find "$HOME/.cache/marathon-build/duranium/mkosi.output" -maxdepth 3 -type f | head -100 >&2
+            exit 1
+          fi
+
+          echo "image=$img" >> "$GITHUB_OUTPUT"
+          echo "Found image: $img"
+          ls -lh "$img"
+
+      - name: Compress image
+        env:
+          ZSTD_LEVEL: ${{ inputs.compress_level || '12' }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p release
+          name="pinephonepro-marathon-edge-${GITHUB_RUN_ID}.raw.zst"
+
+          zstd "-${ZSTD_LEVEL}" -T0 \
+            -o "release/$name" \
+            "${{ steps.locate.outputs.image }}"
+
+          sha256sum "release/$name" > "release/$name.sha256"
+
+          size="$(stat -c%s "release/$name")"
+          echo "Compressed size: $(numfmt --to=iec "$size")"
+
+          if [ "$size" -gt 2000000000 ]; then
+            echo "Image exceeds GitHub's 2 GB release-asset limit." >&2
+            exit 1
+          fi
+
+          ls -lh release/
+
+      - name: Upload image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinephonepro-marathon-image
+          path: |
+            release/*.raw.zst
+            release/*.sha256
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/pinephonepro-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/*.raw.zst
+            release/*.sha256
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}

@@ -37,7 +37,7 @@ if [ -n "${KEEL_SRC:-}" ]; then
     echo "keel source: $KEEL_SRC @ $LOCAL_COMMIT"
 fi
 
-podman run --rm -i \
+podman run --rm -i --platform linux/arm64 \
     --net=host \
     -e TARGET="$TARGET" \
     -e LOCAL_COMMIT="$LOCAL_COMMIT" \

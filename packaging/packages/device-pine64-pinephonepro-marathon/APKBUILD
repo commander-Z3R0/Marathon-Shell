@@ -1,0 +1,59 @@
+# Reference: <https://postmarketos.org/devicepkg>
+# Maintainer: Commander-Z3R0
+
+pkgname=device-pine64-pinephonepro-marathon
+pkgdesc="PINE64 PinePhone Pro device package for Marathon OS"
+pkgver=1.0.0
+pkgrel=2
+url="https://github.com/patrickjquinn/Marathon-Shell"
+license="Apache-2.0"
+arch="aarch64"
+options="!check !archcheck"
+# device-pine64-pinephonepro (pmaports) brings the DTBs, the modem stack
+# (eg25-manager), the kernel and U-Boot; the pipeline's U-Boot boot path
+# lays out the disk. Call audio is WirePlumber's: the "Voice Call" UCM
+# verb during a ModemManager call. Bring-up: not validated on hardware.
+depends="
+	device-pine64-pinephonepro
+	marathon-shell
+	marathon-base-config
+	marathon-plymouth-theme
+	plymouth
+	u-boot-tools
+"
+install="$pkgname.post-install"
+source="
+	greetd-marathon.toml
+	logind.conf
+	device-profile.conf
+	marathon-boot.cmd
+	"
+
+package() {
+	# greetd autologin with the PinePhone Pro display environment (DPI,
+	# no MSAA layers). The post-install points /etc/greetd/config.toml,
+	# owned by marathon-base-config, at it.
+	install -Dm644 "$srcdir/greetd-marathon.toml" \
+		"$pkgdir/etc/greetd/marathon-config.toml"
+
+	# The shell handles the power key (lock / power menu). Left to
+	# logind's default, a press powers the phone off.
+	install -Dm644 "$srcdir/logind.conf" \
+		"$pkgdir/etc/systemd/logind.conf.d/50-marathon.conf"
+
+	# Generated from devices/pine64/pinephonepro/device.toml.
+	install -Dm644 "$srcdir/device-profile.conf" \
+		"$pkgdir/etc/marathon/device-profile.conf"
+
+	# U-Boot script with splash enabled. mkosi.finalize compiles it to
+	# /boot/boot.scr with mkimage (u-boot-tools), replacing the stock one.
+	install -Dm644 "$srcdir/marathon-boot.cmd" \
+		"$pkgdir/usr/share/marathon/marathon-boot.cmd"
+}
+
+sha512sums="
+72cceffd5208d0229d468710f6a54da4416ed6e1bde4d1fca1c7cc49b631e75990b44c3cc55b99b2cc3d656b41849a3f2f669af039bcf02bc7d433831a97b1a3  greetd-marathon.toml
+334899f6aca24687cb8e1d41ae41821c22cd5626f2674c3c2bc661687b039dba4dbd0f126063f81bee64927ffc9c6c4d1ce3682a5c27861effbfe3d15b78a8b5  logind.conf
+bc2f6b244052a218ee1d1dd0ce3193a5aec2ad98437bf789f2d9a8ba1d5d76b2d8cd96e972530fc911eae9cd4b20d11e8a02ce5393bb3383c46e1903e29cdddd  device-profile.conf
+62d4ea863eae286a984cf7df394aeb1e6cb0f91dd86a687a7b83c781d5d7f68327cd8fee3b97b78cb63d6a6341d879a34c13f21b600eb3832aa3873dba7be036  marathon-boot.cmd
+"

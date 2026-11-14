@@ -1,7 +1,10 @@
 # devices/pine64/pinephonepro/device.toml 
+schema = 1
+vendor = "pine64"
 codename = "pinephonepro"
 id = "pine64-pinephonepro"
 name = "PINE64 PinePhone Pro"
+manufacturer = "PINE64"
 soc = "rk3399"
 status = "bring-up"
 package = "device-pine64-pinephonepro-marathon"
@@ -12,8 +15,49 @@ wrapper = "scripts/build-pinephonepro-image.sh"
 flash = "scripts/flash/flash-pinephonepro.sh"
 bootloader = "uki"
 
+# loader, loader_blob and loader_offset_kib go together (the schema requires
+# the blob and the offset at the same time). Pending: path of the blob inside
+# the U-Boot package and its offset (idbloader at sector 64 = 32 KiB).
 [boot]
 method = "u-boot-script"
 partition_table = "gpt"
-loader_offset_kib = 32 
+loader = "u-boot-rockchip"
+loader_blob = "usr/share/u-boot/pinephone-pro-rk3399/u-boot-rockchip.bin"
+loader_offset_kib = 32
 script = "marathon-boot.cmd"
+
+# The panel controller (XBD599 / ST7703) is from memory: the schematic does
+# not name it. Confirm it in the kernel's DTS.
+[display]
+panel = "Xingbangda XBD599 (Sitronix ST7703)"
+interface = "dsi"
+width = 720
+height = 1440
+diagonal_in = 5.99
+depth_bits = 8
+scale_dpi = 270
+
+[input]
+touch = "Goodix GT917S"
+keyboard = "none"
+
+[hardware]
+ram_mb = 4096
+modem = "Quectel EG25-G (eg25-manager)"
+gps = "modem (EG25-G GNSS)"
+wifi = "AzureWave AW-CM256SM (Broadcom, SDIO)"
+bluetooth = "AzureWave AW-CM256SM (UART + PCM)"
+battery = "3000 mAh LiPo (RK818 PMIC)"
+sensors = [
+  "InvenSense MPU-6500 accelerometer/gyroscope",
+  "magnetometer AF8133J (LIS3MDL footprint not fitted)",
+  "SensorTek STK3311 proximity/ambient light",
+]
+
+quirks = [
+  "Debug UART2 (115200 baud per pmaports deviceinfo) is routed to the 3.5 mm jack by a DIP switch",
+  "Boot partition starts at sector 32768 (16 MiB): u-boot.itb sits at 8 MiB",
+]
+
+[profile]
+cpu_governor = "ondemand"
