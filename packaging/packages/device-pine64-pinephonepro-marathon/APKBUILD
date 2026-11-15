@@ -1,5 +1,5 @@
 # Reference: <https://postmarketos.org/devicepkg>
-# Maintainer: Commander-Z3R0
+# maintainer="Commander-Z3R0 <commander-z3r0@users.noreply.github.com>"
 
 pkgname=device-pine64-pinephonepro-marathon
 pkgdesc="PINE64 PinePhone Pro device package for Marathon OS"
