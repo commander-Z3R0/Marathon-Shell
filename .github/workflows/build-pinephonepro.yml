@@ -74,6 +74,14 @@ jobs:
         run: |
           bash packaging/pipeline-patches/bootstrap.sh "$HOME/.cache/marathon-build"
 
+      - name: Apply PinePhone Pro pipeline changes
+        run: |
+          set -euo pipefail
+          # Pipeline patch 0060, as an idempotent script: it edits the freshly
+          # bootstrapped duranium tree (U-Boot boot path, boot partition at
+          # sector 32768, DTBs under rockchip/). It stops if an anchor is missing.
+          python3 scripts/ci/apply-ppp-pipeline.py "$HOME/.cache/marathon-build/duranium"
+
       - name: Pin mkosi tools tree to Fedora
         run: |
           mkdir -p "$HOME/.cache/marathon-build/duranium/mkosi.conf.d"
@@ -122,6 +130,21 @@ jobs:
 
           chmod 600 "$HOME/.ssh/id_ed25519.pub"
 
+      - name: Restore APK cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/marathon-build/duranium/mkosi.packages
+          key: ppp-apks-v1-${{ github.run_id }}
+          restore-keys: |
+            ppp-apks-v1-
+
+      - name: Rebuild the device overlay APK every run
+        run: |
+          # build_if_missing reuses an APK with the same name; the overlay is
+          # small and changes often, so never take it from the cache.
+          rm -f "$HOME"/.cache/marathon-build/duranium/mkosi.packages/device-pine64-pinephonepro-marathon-*.apk
+          ls -lh "$HOME/.cache/marathon-build/duranium/mkosi.packages/" 2>/dev/null || true
+
       - name: Build PinePhone Pro image
         env:
           MARATHON_DEV_SSH_KEY: ${{ secrets.MARATHON_DEV_SSH_KEY }}
@@ -129,15 +152,25 @@ jobs:
           set -euo pipefail
           bash ./scripts/build-pinephonepro-image.sh
 
+      - name: Save APK cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/marathon-build/duranium/mkosi.packages
+          key: ppp-apks-v1-${{ github.run_id }}
+
       - name: Locate image
         id: locate
         run: |
           set -euo pipefail
 
+          # The whole-disk image only: mkosi also leaves split partitions next
+          # to it (<name>.root-arm64.<hash>.raw, <name>.esp.raw), which must
+          # never be flashed to a card.
           img="$(
             find "$HOME/.cache/marathon-build/duranium/mkosi.output" \
-              -path '*pine64-pinephonepro_marathon_edge*' \
-              -name '*.raw' \
+              -regextype posix-extended \
+              -regex '.*/pine64-pinephonepro_marathon_edge_[0-9]+\.raw' \
               -type f \
               -printf '%T@ %p\n' \
             | sort -nr \
@@ -146,7 +179,7 @@ jobs:
           )"
 
           if [ -z "$img" ]; then
-            echo "No PinePhone Pro .raw image was produced." >&2
+            echo "No whole-disk PinePhone Pro .raw image was produced." >&2
             find "$HOME/.cache/marathon-build/duranium/mkosi.output" -maxdepth 3 -type f | head -100 >&2
             exit 1
           fi
@@ -154,6 +187,32 @@ jobs:
           echo "image=$img" >> "$GITHUB_OUTPUT"
           echo "Found image: $img"
           ls -lh "$img"
+
+      - name: Verify the PinePhone Pro disk layout
+        run: |
+          set -euo pipefail
+          img="${{ steps.locate.outputs.image }}"
+
+          at()  { dd if="$img" bs=1 skip="$1" count="$2" status=none | tr -d '\000'; }
+          hex() { od -An -tx1 | tr -d ' \n'; }
+          fail() {
+            echo "layout check failed: $*" >&2
+            sfdisk -d "$img" >&2 || true
+            exit 1
+          }
+
+          [ "$(at 510 2 | hex)" = "55aa" ]          || fail "no protective MBR signature"
+          [ "$(at 512 8)" = "EFI PART" ]            || fail "no GPT"
+          [ "$(at 32768 4)" = "RK33" ]              || fail "no Rockchip idbloader at 32 KiB"
+          [ "$(at 8388608 4 | hex)" = "d00dfeed" ]  || fail "no FIT image (u-boot.itb) at 8 MiB"
+          sfdisk -J "$img" | python3 -c '
+          import json, sys
+          parts = json.load(sys.stdin)["partitiontable"]["partitions"]
+          sys.exit(0 if parts[0]["start"] == 32768 else 1)
+          ' || fail "partition 1 does not start at sector 32768"
+
+          echo "layout OK: GPT, idbloader at 32 KiB, u-boot.itb at 8 MiB, boot partition at sector 32768"
+          sfdisk -d "$img"
 
       - name: Compress image
         env:
