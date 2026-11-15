@@ -1,8 +1,6 @@
 // SPDX-FileCopyrightText: 2026 Patrick Quinn
 // SPDX-License-Identifier: Apache-2.0
 
-use std::path::PathBuf;
-
 use cxx_qt_build::{CxxQtBuilder, QmlModule};
 
 // Links Keel's SailfishApp library (libkeel-sailfishapp) for cpp/launcher.cpp;
