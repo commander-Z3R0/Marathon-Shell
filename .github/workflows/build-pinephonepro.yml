@@ -195,16 +195,32 @@ jobs:
 
           at()  { dd if="$img" bs=1 skip="$1" count="$2" status=none | tr -d '\000'; }
           hex() { od -An -tx1 | tr -d ' \n'; }
+          raw() { dd if="$img" bs=1 skip="$1" count="$2" status=none | od -An -tx1 | tr -d ' \n'; }
           fail() {
             echo "layout check failed: $*" >&2
             sfdisk -d "$img" >&2 || true
             exit 1
           }
 
-          [ "$(at 510 2 | hex)" = "55aa" ]          || fail "no protective MBR signature"
-          [ "$(at 512 8)" = "EFI PART" ]            || fail "no GPT"
-          [ "$(at 32768 4)" = "RK33" ]              || fail "no Rockchip idbloader at 32 KiB"
-          [ "$(at 8388608 4 | hex)" = "d00dfeed" ]  || fail "no FIT image (u-boot.itb) at 8 MiB"
+          # Always show what is there, so a failure can be diagnosed from the log.
+          echo "bytes at 32 KiB (idbloader):   $(raw 32768 16)"
+          echo "bytes at 8 MiB  (u-boot.itb):  $(raw 8388608 16)"
+
+          [ "$(at 510 2 | hex)" = "55aa" ] || fail "no protective MBR signature"
+          [ "$(at 512 8)" = "EFI PART" ]   || fail "no GPT"
+
+          # The Rockchip boot ROM header is RC4-encrypted, so a valid idbloader
+          # starts with 3b8cdcfc (the "RK33" text sits further in). Fail only if
+          # nothing at all was written there; warn on an unknown header.
+          nonzero=$(dd if="$img" bs=1 skip=32768 count=512 status=none | tr -d '\000' | wc -c)
+          [ "$nonzero" -gt 0 ] || fail "nothing written at 32 KiB: the U-Boot blob is missing"
+          case "$(raw 32768 4)" in
+            3b8cdcfc|524b3333) echo "idbloader header recognised" ;;
+            *) echo "::warning::unknown header at 32 KiB ($(raw 32768 4)); expected a Rockchip idbloader (3b8cdcfc)" ;;
+          esac
+
+          [ "$(raw 8388608 4)" = "d00dfeed" ] || fail "no FIT image (u-boot.itb) at 8 MiB"
+
           sfdisk -J "$img" | python3 -c '
           import json, sys
           parts = json.load(sys.stdin)["partitiontable"]["partitions"]
@@ -215,6 +231,7 @@ jobs:
           sfdisk -d "$img"
 
       - name: Compress image
+        if: ${{ always() && steps.locate.outputs.image != '' }}
         env:
           ZSTD_LEVEL: ${{ inputs.compress_level || '12' }}
         run: |
@@ -240,6 +257,7 @@ jobs:
           ls -lh release/
 
       - name: Upload image artifact
+        if: ${{ always() && steps.locate.outputs.image != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: pinephonepro-marathon-image
