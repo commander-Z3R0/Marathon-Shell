@@ -20,10 +20,12 @@
 # of your firmware before assuming the image is bad.
 #
 # Before writing, the image is checked for the PinePhone Pro layout (a GPT,
-# a Rockchip idbloader "RK33" at 32 KiB and a FIT image at 8 MiB), so an
-# image built before pipeline patch 0060 (or for another device) is refused.
-# SKIP_SIGNATURE_CHECK=1 skips the two U-Boot signature checks only, for
-# when the layout was verified by hand.
+# something written at 32 KiB where the Rockchip idbloader goes, and a FIT
+# image at 8 MiB), so an image built before pipeline patch 0060 (or for
+# another device) is refused. The idbloader's boot ROM header is RC4-encrypted
+# and starts with 3b8cdcfc; an unknown header only warns.
+# SKIP_SIGNATURE_CHECK=1 skips the two U-Boot checks, for when the layout was
+# verified by hand.
 set -euo pipefail
 
 CACHE="${MARATHON_BUILD_DIR:-$HOME/.cache/marathon-build}/duranium/mkosi.output/pine64-pinephonepro_marathon_edge"
@@ -67,14 +69,19 @@ trap 'rm -f "$HEAD"' EXIT
 decompress | head -c 8388624 > "$HEAD" || true
 at() { dd if="$HEAD" bs=1 skip="$1" count="$2" status=none | tr -d '\000'; }
 hex() { od -An -tx1 | tr -d ' \n'; }
+hex_raw() { od -An -tx1 | tr -d ' \n'; }   # zero bytes kept
 [ "$(at 510 2 | hex)" = "55aa" ] \
     || { echo "refusing: $IMG has no (protective) MBR boot signature" >&2; exit 1; }
 [ "$(at 512 8)" = "EFI PART" ] \
     || { echo "refusing: $IMG has no GPT (built for another device, or before pipeline patch 0060?)" >&2; exit 1; }
 if [ "${SKIP_SIGNATURE_CHECK:-0}" != "1" ]; then
-    [ "$(at 32768 4)" = "RK33" ] \
-        || { echo "refusing: $IMG has no Rockchip idbloader (RK33) at 32 KiB" >&2; exit 1; }
-    [ "$(at 8388608 4 | hex)" = "d00dfeed" ] \
+    [ "$(dd if="$HEAD" bs=1 skip=32768 count=512 status=none | tr -d '\000' | wc -c)" -gt 0 ] \
+        || { echo "refusing: $IMG has nothing at 32 KiB (the U-Boot idbloader is missing)" >&2; exit 1; }
+    case "$(dd if="$HEAD" bs=1 skip=32768 count=4 status=none | hex_raw)" in
+        3b8cdcfc|524b3333) ;;
+        *) echo "warning: unknown header at 32 KiB; expected a Rockchip idbloader (3b8cdcfc)" >&2 ;;
+    esac
+    [ "$(dd if="$HEAD" bs=1 skip=8388608 count=4 status=none | hex_raw)" = "d00dfeed" ] \
         || { echo "refusing: $IMG has no FIT image (u-boot.itb) at 8 MiB" >&2; exit 1; }
 fi
 
