@@ -1,30 +1,29 @@
 # Maintainer: Patrick Quinn <patrick.jm.quinn@gmail.com>
 pkgname=keel-silica
 pkgver=0.1.0
-pkgrel=12
+pkgrel=13
 _commit=0df499bf34e02cec7f571853cbf5a4323dc1609e
-_qtver=6.11.1
 pkgdesc="Keel: Sailfish Silica QML components for Qt 6"
 url="https://github.com/patrickjquinn/shipwright-open"
 arch="aarch64"
 license="MIT AND BSD-3-Clause AND LGPL-2.1-only"
-depends="qt6-qtdeclarative~$_qtver mlite dconf"
+depends="qt6-qtdeclarative mlite dconf"
 subpackages="$pkgname-dev"
 makedepends="
-	cargo
-	cmake
-	samurai
-	mlite-dev
-	dconf-dev
-	pkgconf
-	qt6-qtbase-dev
-	qt6-qtbase-private-dev
-	qt6-qtdeclarative-dev
-	qt6-qtdeclarative-private-dev
-	"
+cargo
+cmake
+samurai
+mlite-dev
+dconf-dev
+pkgconf
+qt6-qtbase-dev
+qt6-qtbase-private-dev
+qt6-qtdeclarative-dev
+qt6-qtdeclarative-private-dev
+"
 source="$pkgname-$_commit.tar.gz::https://github.com/patrickjquinn/shipwright-open/archive/$_commit.tar.gz
-	0001-sailfishapp-glibc-only-allocator-tuning.patch
-	"
+0001-sailfishapp-glibc-only-allocator-tuning.patch
+"
 # Keel's tests need a session bus and qmltestrunner; they run in Shipwright's CI.
 options="net !check"
 builddir="$srcdir/shipwright-open-$_commit/keel"
@@ -61,9 +60,9 @@ package() {
 		"$pkgdir"/usr/lib/qt6/qml/org/nemomobile/policy
 	install -Dm644 LICENSE "$pkgdir"/usr/share/licenses/$pkgname/LICENSE
 	install -Dm644 silica/upstream/sailfishsilica-qt5-1.2.156/LICENSE.BSD \
-		"$pkgdir"/usr/share/licenses/$pkgname/LICENSE.BSD
-	install -Dm644 silica/upstream/sailfishsilica-qt5-1.2.156/LICENSE \
 		"$pkgdir"/usr/share/licenses/$pkgname/sailfishsilica.LICENSE
+	install -Dm644 silica/upstream/sailfishsilica-qt5-1.2.156/LICENSE \
+		"$pkgdir"/usr/share/licenses/$pkgname/LICENSE
 	install -Dm644 nemo-compat/upstream-licenses/* \
 		-t "$pkgdir"/usr/share/licenses/$pkgname/
 }
