@@ -134,9 +134,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/marathon-build/duranium/mkosi.packages
-          key: ppp-apks-v1-${{ github.run_id }}
+          key: ppp-apks-v2-${{ github.run_id }}
           restore-keys: |
-            ppp-apks-v1-
+            ppp-apks-v2-
 
       - name: Rebuild the device overlay APK every run
         run: |
@@ -157,7 +157,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/marathon-build/duranium/mkosi.packages
-          key: ppp-apks-v1-${{ github.run_id }}
+          key: ppp-apks-v2-${{ github.run_id }}
 
       - name: Locate image
         id: locate
